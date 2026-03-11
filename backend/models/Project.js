@@ -6,7 +6,7 @@ const projectSchema = new mongoose.Schema(
     description: { type: String, default: "" },
     status: {
       type: String,
-      enum: ["planning", "active", "on-hold", "completed", "cancelled"],
+      enum: ["planning", "active", "on_hold", "completed", "cancelled"],
       default: "planning",
     },
     priority: {
@@ -19,7 +19,12 @@ const projectSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    members: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: "User" } }],
+    members: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     progress: { type: Number, default: 0 },
     dueDate: { type: Date, default: null },
     createdBy: {

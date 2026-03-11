@@ -1,174 +1,147 @@
+import { useState, useEffect } from "react";
 import PageWrapper from "../../components/layout/PageWrapper";
 import { useTheme } from "../../context/ThemeContext";
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell,
-  AreaChart,
-  Area,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, AreaChart, Area,
 } from "recharts";
-
-const monthlyData = [
-  { month: "Jan", tasks: 65, users: 20, projects: 3 },
-  { month: "Feb", tasks: 80, users: 25, projects: 4 },
-  { month: "Mar", tasks: 72, users: 30, projects: 4 },
-  { month: "Apr", tasks: 95, users: 40, projects: 6 },
-  { month: "May", tasks: 88, users: 45, projects: 5 },
-  { month: "Jun", tasks: 110, users: 55, projects: 7 },
-  { month: "Jul", tasks: 125, users: 65, projects: 8 },
-];
-
-const teamPerformance = [
-  { name: "Sara Chen", completed: 42, color: "#00d4aa" },
-  { name: "Lisa Wang", completed: 38, color: "#a78bfa" },
-  { name: "John Smith", completed: 28, color: "#6c63ff" },
-  { name: "Amy Lee", completed: 35, color: "#ff6b35" },
-  { name: "Mike Davis", completed: 20, color: "#f59e0b" },
-];
-
-const pieData = [
-  { name: "Completed", value: 445, color: "#22c55e" },
-  { name: "In Progress", value: 200, color: "#6c63ff" },
-  { name: "Pending", value: 88, color: "#f59e0b" },
-  { name: "Overdue", value: 30, color: "#ef4444" },
-];
-
-const areaData = [
-  { week: "W1", active: 45, new: 12 },
-  { week: "W2", active: 52, new: 18 },
-  { week: "W3", active: 48, new: 10 },
-  { week: "W4", active: 65, new: 22 },
-  { week: "W5", active: 70, new: 15 },
-  { week: "W6", active: 80, new: 25 },
-];
+import api from "../../services/api";
 
 const Analytics = () => {
   const { isDark } = useTheme();
+  const [loading, setLoading] = useState(true);
+  const [summaryStats, setSummaryStats] = useState([]);
+  const [monthlyData, setMonthlyData] = useState([]);
+  const [teamPerformance, setTeamPerformance] = useState([]);
+  const [pieData, setPieData] = useState([]);
+  const [userGrowthData, setUserGrowthData] = useState([]);
+
   const cardBg = isDark ? "#12121f" : "#ffffff";
   const border = isDark ? "#1e1e30" : "#e2e8f0";
   const text = isDark ? "#e8e8f0" : "#1a1a2e";
   const muted = isDark ? "#6b6b8a" : "#64748b";
   const gridBg = isDark ? "#1e1e30" : "#f1f5f9";
+  const TEAM_COLORS = ["#00d4aa", "#a78bfa", "#6c63ff", "#ff6b35", "#f59e0b", "#22c55e"];
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [tasksRes, usersRes, projectsRes] = await Promise.all([
+          api.get("/tasks"),
+          api.get("/users"),
+          api.get("/projects"),
+        ]);
+        const tasks = tasksRes.tasks || tasksRes || [];
+        const users = usersRes.users || usersRes || [];
+        const projects = projectsRes.projects || projectsRes || [];
+
+        // Summary Stats
+        const completed = tasks.filter(t => t.status === "completed").length;
+        const inProgress = tasks.filter(t => t.status === "in-progress").length;
+        const rate = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+        setSummaryStats([
+          { label: "Total Tasks", value: String(tasks.length), color: "#ff6b35" },
+          { label: "Completed", value: String(completed), color: "#22c55e" },
+          { label: "Active Users", value: String(users.length), color: "#6c63ff" },
+          { label: "Avg. Score", value: `${rate}%`, color: "#00d4aa" },
+        ]);
+
+        // Pie
+        const pending = tasks.filter(t => t.status === "todo").length;
+        const overdue = tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "completed").length;
+        setPieData([
+          { name: "Completed", value: completed, color: "#22c55e" },
+          { name: "In Progress", value: inProgress, color: "#6c63ff" },
+          { name: "Pending", value: pending, color: "#f59e0b" },
+          { name: "Overdue", value: overdue, color: "#ef4444" },
+        ]);
+
+        // Monthly Tasks - last 7 months
+        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const now = new Date();
+        const last7 = Array.from({ length: 7 }, (_, i) => {
+          const d = new Date(now.getFullYear(), now.getMonth() - 6 + i, 1);
+          return { month: months[d.getMonth()], monthIndex: d.getMonth(), year: d.getFullYear() };
+        });
+        const monthly = last7.map(({ month, monthIndex, year }) => {
+          const monthTasks = tasks.filter(t => {
+            const d = new Date(t.createdAt);
+            return d.getMonth() === monthIndex && d.getFullYear() === year;
+          });
+          const monthUsers = users.filter(u => {
+            const d = new Date(u.createdAt);
+            return d.getMonth() === monthIndex && d.getFullYear() === year;
+          });
+          const monthProjects = projects.filter(p => {
+            const d = new Date(p.createdAt);
+            return d.getMonth() === monthIndex && d.getFullYear() === year;
+          });
+          return { month, tasks: monthTasks.length, users: monthUsers.length, projects: monthProjects.length };
+        });
+        setMonthlyData(monthly);
+
+        // User growth by week
+        const weeks = ["W1","W2","W3","W4","W5","W6"];
+        const weeklyGrowth = weeks.map((week, i) => ({
+          week,
+          active: Math.max(1, Math.floor((users.length / 6) * (i + 1))),
+          new: users.filter(u => {
+            const d = new Date(u.createdAt);
+            const weekStart = new Date(now.getFullYear(), now.getMonth(), 1 + i * 7);
+            const weekEnd = new Date(now.getFullYear(), now.getMonth(), 8 + i * 7);
+            return d >= weekStart && d < weekEnd;
+          }).length,
+        }));
+        setUserGrowthData(weeklyGrowth);
+
+        // Team performance - tasks completed per user
+        const employees = users.filter(u => u.role === "employee" || u.role === "manager").slice(0, 5);
+        const performance = employees.map(u => ({
+          name: u.name,
+          completed: tasks.filter(t => t.assignedTo?._id === u._id || t.assignedTo === u._id).filter(t => t.status === "completed").length,
+        }));
+        setTeamPerformance(performance);
+
+      } catch (err) {
+        console.error("Analytics fetch error", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       return (
-        <div
-          className="rounded-xl p-3"
-          style={{ backgroundColor: cardBg, border: `1px solid ${border}` }}
-        >
-          <p
-            className="text-xs font-bold mb-1"
-            style={{ color: text, fontFamily: "Syne, sans-serif" }}
-          >
-            {label}
-          </p>
-          {payload.map((p, i) => (
-            <p
-              key={i}
-              className="text-xs"
-              style={{ color: p.color, fontFamily: "DM Sans" }}
-            >
-              {p.name}: {p.value}
-            </p>
-          ))}
+        <div className="rounded-xl p-3" style={{ backgroundColor: cardBg, border: `1px solid ${border}` }}>
+          <p className="text-xs font-bold mb-1" style={{ color: text, fontFamily: "Syne, sans-serif" }}>{label}</p>
+          {payload.map((p, i) => <p key={i} className="text-xs" style={{ color: p.color, fontFamily: "DM Sans" }}>{p.name}: {p.value}</p>)}
         </div>
       );
     }
     return null;
   };
 
+  if (loading) return <PageWrapper title="Analytics"><div className="text-center py-12"><p className="text-lg font-semibold" style={{ color: isDark ? "#6b6b8a" : "#64748b", fontFamily: "Syne, sans-serif" }}>Loading analytics...</p></div></PageWrapper>;
+
   return (
     <PageWrapper title="Analytics">
       {/* Summary Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-        {[
-          {
-            label: "Total Tasks",
-            value: "763",
-            change: "+12%",
-            color: "#ff6b35",
-          },
-          {
-            label: "Completed",
-            value: "445",
-            change: "+18%",
-            color: "#22c55e",
-          },
-          {
-            label: "Active Users",
-            value: "128",
-            change: "+8%",
-            color: "#6c63ff",
-          },
-          {
-            label: "Avg. Score",
-            value: "87%",
-            change: "+5%",
-            color: "#00d4aa",
-          },
-        ].map((stat, i) => (
-          <div
-            key={stat.label}
-            className="rounded-2xl p-4 transition-all hover:scale-[1.02]"
-            style={{
-              backgroundColor: cardBg,
-              border: `1px solid ${border}`,
-              boxShadow: isDark
-                ? "0 4px 24px rgba(0,0,0,0.3)"
-                : "0 4px 24px rgba(0,0,0,0.06)",
-              animation: `slideUp 0.3s ease ${i * 0.1}s both`,
-            }}
-          >
-            <p
-              className="text-2xl font-black"
-              style={{ color: stat.color, fontFamily: "Syne, sans-serif" }}
-            >
-              {stat.value}
-            </p>
-            <p
-              className="text-xs mt-0.5"
-              style={{ color: muted, fontFamily: "DM Sans, sans-serif" }}
-            >
-              {stat.label}
-            </p>
-            <span
-              className="text-xs font-semibold"
-              style={{ color: "#22c55e", fontFamily: "DM Sans, sans-serif" }}
-            >
-              {stat.change} this month
-            </span>
+        {summaryStats.map((stat, i) => (
+          <div key={stat.label} className="rounded-2xl p-4 transition-all hover:scale-[1.02]" style={{ backgroundColor: cardBg, border: `1px solid ${border}`, boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.3)" : "0 4px 24px rgba(0,0,0,0.06)", animation: `slideUp 0.3s ease ${i * 0.1}s both` }}>
+            <p className="text-2xl font-black" style={{ color: stat.color, fontFamily: "Syne, sans-serif" }}>{stat.value}</p>
+            <p className="text-xs mt-0.5" style={{ color: muted, fontFamily: "DM Sans, sans-serif" }}>{stat.label}</p>
           </div>
         ))}
       </div>
 
-      {/* Monthly Trends */}
+      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        <div
-          className="rounded-2xl p-5"
-          style={{
-            backgroundColor: cardBg,
-            border: `1px solid ${border}`,
-            boxShadow: isDark
-              ? "0 4px 24px rgba(0,0,0,0.3)"
-              : "0 4px 24px rgba(0,0,0,0.06)",
-          }}
-        >
-          <h3
-            className="text-base font-bold mb-4"
-            style={{ fontFamily: "Syne, sans-serif", color: text }}
-          >
-            Monthly Tasks
-          </h3>
+        <div className="rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `1px solid ${border}`, boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.3)" : "0 4px 24px rgba(0,0,0,0.06)" }}>
+          <h3 className="text-base font-bold mb-4" style={{ fontFamily: "Syne, sans-serif", color: text }}>Monthly Tasks</h3>
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={monthlyData}>
               <defs>
@@ -178,48 +151,18 @@ const Analytics = () => {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={gridBg} />
-              <XAxis
-                dataKey="month"
-                tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }}
-                axisLine={false}
-                tickLine={false}
-              />
+              <XAxis dataKey="month" tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
-              <Area
-                type="monotone"
-                dataKey="tasks"
-                stroke="#ff6b35"
-                strokeWidth={2}
-                fill="url(#taskGrad)"
-                name="Tasks"
-              />
+              <Area type="monotone" dataKey="tasks" stroke="#ff6b35" strokeWidth={2} fill="url(#taskGrad)" name="Tasks" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
-        <div
-          className="rounded-2xl p-5"
-          style={{
-            backgroundColor: cardBg,
-            border: `1px solid ${border}`,
-            boxShadow: isDark
-              ? "0 4px 24px rgba(0,0,0,0.3)"
-              : "0 4px 24px rgba(0,0,0,0.06)",
-          }}
-        >
-          <h3
-            className="text-base font-bold mb-4"
-            style={{ fontFamily: "Syne, sans-serif", color: text }}
-          >
-            User Growth
-          </h3>
+        <div className="rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `1px solid ${border}`, boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.3)" : "0 4px 24px rgba(0,0,0,0.06)" }}>
+          <h3 className="text-base font-bold mb-4" style={{ fontFamily: "Syne, sans-serif", color: text }}>User Growth</h3>
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={areaData}>
+            <AreaChart data={userGrowthData}>
               <defs>
                 <linearGradient id="userGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#6c63ff" stopOpacity={0.3} />
@@ -227,34 +170,11 @@ const Analytics = () => {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={gridBg} />
-              <XAxis
-                dataKey="week"
-                tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }}
-                axisLine={false}
-                tickLine={false}
-              />
+              <XAxis dataKey="week" tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
-              <Area
-                type="monotone"
-                dataKey="active"
-                stroke="#6c63ff"
-                strokeWidth={2}
-                fill="url(#userGrad)"
-                name="Active"
-              />
-              <Area
-                type="monotone"
-                dataKey="new"
-                stroke="#00d4aa"
-                strokeWidth={2}
-                fill="none"
-                name="New"
-              />
+              <Area type="monotone" dataKey="active" stroke="#6c63ff" strokeWidth={2} fill="url(#userGrad)" name="Active" />
+              <Area type="monotone" dataKey="new" stroke="#00d4aa" strokeWidth={2} fill="none" name="New" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -262,117 +182,43 @@ const Analytics = () => {
 
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Team Performance */}
-        <div
-          className="lg:col-span-2 rounded-2xl p-5"
-          style={{
-            backgroundColor: cardBg,
-            border: `1px solid ${border}`,
-            boxShadow: isDark
-              ? "0 4px 24px rgba(0,0,0,0.3)"
-              : "0 4px 24px rgba(0,0,0,0.06)",
-          }}
-        >
-          <h3
-            className="text-base font-bold mb-4"
-            style={{ fontFamily: "Syne, sans-serif", color: text }}
-          >
-            Team Performance
-          </h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={teamPerformance} layout="vertical" barSize={10}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke={gridBg}
-                horizontal={false}
-              />
-              <XAxis
-                type="number"
-                tick={{ fill: muted, fontSize: 11, fontFamily: "DM Sans" }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                type="category"
-                dataKey="name"
-                tick={{ fill: muted, fontSize: 11, fontFamily: "DM Sans" }}
-                axisLine={false}
-                tickLine={false}
-                width={80}
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar
-                dataKey="completed"
-                radius={[0, 4, 4, 0]}
-                name="Tasks Completed"
-              >
-                {teamPerformance.map((entry, index) => (
-                  <Cell key={index} fill={entry.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="lg:col-span-2 rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `1px solid ${border}`, boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.3)" : "0 4px 24px rgba(0,0,0,0.06)" }}>
+          <h3 className="text-base font-bold mb-4" style={{ fontFamily: "Syne, sans-serif", color: text }}>Team Performance</h3>
+          {teamPerformance.length === 0 ? (
+            <p className="text-sm text-center py-8" style={{ color: muted, fontFamily: "DM Sans, sans-serif" }}>No team data yet</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={teamPerformance} layout="vertical" barSize={10}>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridBg} horizontal={false} />
+                <XAxis type="number" tick={{ fill: muted, fontSize: 11, fontFamily: "DM Sans" }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" tick={{ fill: muted, fontSize: 11, fontFamily: "DM Sans" }} axisLine={false} tickLine={false} width={80} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="completed" radius={[0, 4, 4, 0]} name="Tasks Completed">
+                  {teamPerformance.map((_, index) => <Cell key={index} fill={TEAM_COLORS[index % TEAM_COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
-        {/* Task Breakdown Pie */}
-        <div
-          className="rounded-2xl p-5"
-          style={{
-            backgroundColor: cardBg,
-            border: `1px solid ${border}`,
-            boxShadow: isDark
-              ? "0 4px 24px rgba(0,0,0,0.3)"
-              : "0 4px 24px rgba(0,0,0,0.06)",
-          }}
-        >
-          <h3
-            className="text-base font-bold mb-4"
-            style={{ fontFamily: "Syne, sans-serif", color: text }}
-          >
-            Task Breakdown
-          </h3>
+        <div className="rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `1px solid ${border}`, boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.3)" : "0 4px 24px rgba(0,0,0,0.06)" }}>
+          <h3 className="text-base font-bold mb-4" style={{ fontFamily: "Syne, sans-serif", color: text }}>Task Breakdown</h3>
           <ResponsiveContainer width="100%" height={150}>
             <PieChart>
-              <Pie
-                data={pieData}
-                cx="50%"
-                cy="50%"
-                innerRadius={40}
-                outerRadius={65}
-                paddingAngle={3}
-                dataKey="value"
-              >
-                {pieData.map((entry, index) => (
-                  <Cell key={index} fill={entry.color} />
-                ))}
+              <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={3} dataKey="value">
+                {pieData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
               </Pie>
               <Tooltip content={<CustomTooltip />} />
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-2 mt-3">
             {pieData.map((item) => (
-              <div
-                key={item.name}
-                className="flex items-center justify-between"
-              >
+              <div key={item.name} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span
-                    className="text-xs"
-                    style={{ color: muted, fontFamily: "DM Sans, sans-serif" }}
-                  >
-                    {item.name}
-                  </span>
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                  <span className="text-xs" style={{ color: muted, fontFamily: "DM Sans, sans-serif" }}>{item.name}</span>
                 </div>
-                <span
-                  className="text-xs font-semibold"
-                  style={{ color: text, fontFamily: "DM Sans, sans-serif" }}
-                >
-                  {item.value}
-                </span>
+                <span className="text-xs font-semibold" style={{ color: text, fontFamily: "DM Sans, sans-serif" }}>{item.value}</span>
               </div>
             ))}
           </div>

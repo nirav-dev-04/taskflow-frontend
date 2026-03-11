@@ -11,9 +11,9 @@ import {
 const router = express.Router();
 
 router.get("/", protect, getNotifications);
+router.patch("/mark-all-read", protect, markAllAsRead);  // must be before /:id
 router.patch("/:id/read", protect, markAsRead);
-router.patch("/read-all", protect, markAllAsRead);
-router.delete("/clear-all", protect, clearAllNotifications);
+router.delete("/", protect, clearAllNotifications);       // clear all
 router.delete("/:id", protect, deleteNotification);
 
 export default router;

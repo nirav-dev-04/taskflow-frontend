@@ -6,7 +6,7 @@ const taskSchema = new mongoose.Schema(
     description: { type: String, default: "" },
     status: {
       type: String,
-      enum: ["todo", "in-progress", "review", "completed"],
+      enum: ["todo", "in_progress", "review", "done"],
       default: "todo",
     },
     priority: {
@@ -19,11 +19,12 @@ const taskSchema = new mongoose.Schema(
       ref: "Project",
       required: true,
     },
-    assignedTo: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    },
+    assignees: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

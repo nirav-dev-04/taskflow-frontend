@@ -2,7 +2,7 @@ import asyncHandler from "express-async-handler";
 import User from "../models/User.js";
 
 export const register = asyncHandler(async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password } = req.body;
   if (!name || !email || !password) {
     res.status(400);
     throw new Error("Please fill all fields");
@@ -14,24 +14,26 @@ export const register = asyncHandler(async (req, res) => {
     throw new Error("Email already registered");
   }
 
+  // First user = admin, everyone else = employee
+  const userCount = await User.countDocuments();
+
   const user = await User.create({
     name,
     email,
     password,
-    role: role || "employee",
+    role: userCount === 0 ? "admin" : "employee",
   });
-  res
-    .status(201)
-    .json({
-      token: user.generateToken(),
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-      },
-    });
+
+  res.status(201).json({
+    token: user.generateToken(),
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      avatar: user.avatar,
+    },
+  });
 });
 
 export const login = asyncHandler(async (req, res) => {
