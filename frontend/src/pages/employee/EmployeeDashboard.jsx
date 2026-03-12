@@ -9,10 +9,10 @@ import { LineChart, Line, XAxis, Tooltip, ResponsiveContainer } from "recharts";
 import api from "../../services/api";
 
 const STATUS_CONFIG = {
-  "in-progress": { color: "#6c63ff", bg: "rgba(108,99,255,0.1)", label: "In Progress" },
+  "in_progress": { color: "#6c63ff", bg: "rgba(108,99,255,0.1)", label: "In Progress" },
   todo: { color: "#f59e0b", bg: "rgba(245,158,11,0.1)", label: "Todo" },
   review: { color: "#00d4aa", bg: "rgba(0,212,170,0.1)", label: "Review" },
-  completed: { color: "#22c55e", bg: "rgba(34,197,94,0.1)", label: "Done" },
+  done: { color: "#22c55e", bg: "rgba(34,197,94,0.1)", label: "Done" },
 };
 
 const PRIORITY_CONFIG = {
@@ -65,8 +65,8 @@ const EmployeeDashboard = () => {
         setMyProjects(myProjectList.slice(0, 3));
 
         // Stats
-        const completed = myTaskList.filter(t => t.status === "completed").length;
-        const inProgress = myTaskList.filter(t => t.status === "in-progress").length;
+        const completed = myTaskList.filter(t => t.status === "done").length;
+        const inProgress = myTaskList.filter(t => t.status === "in_progress").length;
         const score = myTaskList.length > 0 ? Math.round((completed / myTaskList.length) * 100) : 0;
         setStats({ total: myTaskList.length, completed, inProgress, score });
 
@@ -210,7 +210,7 @@ const EmployeeDashboard = () => {
                   const colors = ["#6c63ff", "#00d4aa", "#a78bfa"];
                   const color = colors[i % colors.length];
                   const total = project.tasks?.length || 0;
-                  const done = project.tasks?.filter(t => t.status === "completed").length || 0;
+                  const done = project.tasks?.filter(t => t.status === "done").length || 0;
                   const progress = total > 0 ? Math.round((done / total) * 100) : 0;
                   return (
                     <div key={project._id} style={{ animation: `slideUp 0.3s ease ${i * 0.1}s both` }}>
@@ -238,7 +238,7 @@ const EmployeeDashboard = () => {
               {[
                 { label: "Completed", count: stats.completed, icon: FiCheckCircle, color: "#22c55e" },
                 { label: "In Progress", count: stats.inProgress, icon: FiClock, color: "#6c63ff" },
-                { label: "Overdue", count: myTasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "completed").length, icon: FiAlertCircle, color: "#ef4444" },
+                { label: "Overdue", count: myTasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "done").length, icon: FiAlertCircle, color: "#ef4444" },
               ].map((item) => (
                 <div key={item.label} className="flex items-center justify-between p-2 rounded-xl" style={{ backgroundColor: `${item.color}10` }}>
                   <div className="flex items-center gap-2">

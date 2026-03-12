@@ -52,7 +52,7 @@ const MyTeam = () => {
           });
           return {
             ...u,
-            taskStats: { total: userTasks.length, done: userTasks.filter(t => t.status === "completed").length },
+            taskStats: { total: userTasks.length, done: userTasks.filter(t => t.status === "done").length },
             projects: memberProjects[u._id] || [],
           };
         });

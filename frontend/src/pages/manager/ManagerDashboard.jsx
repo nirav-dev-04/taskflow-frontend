@@ -54,7 +54,7 @@ const ManagerDashboard = () => {
         // Tasks in managed projects
         const projectIds = new Set(managed.map(p => p._id));
         const myTasks = allTasks.filter(t => projectIds.has(t.project?._id || t.project));
-        const completed = myTasks.filter(t => t.status === "completed").length;
+        const completed = myTasks.filter(t => t.status === "done").length;
         const completionRate = myTasks.length > 0 ? Math.round((completed / myTasks.length) * 100) : 0;
 
         setStats({ projects: managed.length, members: team.length, tasks: myTasks.length, completion: completionRate });
@@ -77,7 +77,7 @@ const ManagerDashboard = () => {
           });
           return {
             sprint: week,
-            done: weekTasks.filter(t => t.status === "completed").length,
+            done: weekTasks.filter(t => t.status === "done").length,
             todo: weekTasks.filter(t => t.status === "todo").length,
           };
         });
@@ -178,7 +178,7 @@ const ManagerDashboard = () => {
               {myProjects.map((project, i) => {
                 const color = COLORS[i % COLORS.length];
                 const total = project.tasks?.length || 0;
-                const done = project.tasks?.filter(t => t.status === "completed").length || 0;
+                const done = project.tasks?.filter(t => t.status === "done").length || 0;
                 const progress = total > 0 ? Math.round((done / total) * 100) : 0;
                 return (
                   <div key={project._id} className="p-3 rounded-xl transition-all duration-200 hover:scale-[1.01]"

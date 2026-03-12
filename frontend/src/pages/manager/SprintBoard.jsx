@@ -9,78 +9,82 @@ import toast from "react-hot-toast";
 import api from "../../services/api";
 
 const PRIORITY_CONFIG = {
-  high: { color: "#ef4444", bg: "rgba(239,68,68,0.1)", label: "High" },
-  medium: { color: "#f59e0b", bg: "rgba(245,158,11,0.1)", label: "Medium" },
-  low: { color: "#22c55e", bg: "rgba(34,197,94,0.1)", label: "Low" },
-  critical: { color: "#ef4444", bg: "rgba(239,68,68,0.1)", label: "Critical" },
+  high:     { color: "#ef4444", bg: "rgba(239,68,68,0.1)",  label: "High" },
+  medium:   { color: "#f59e0b", bg: "rgba(245,158,11,0.1)", label: "Medium" },
+  low:      { color: "#22c55e", bg: "rgba(34,197,94,0.1)",  label: "Low" },
+  critical: { color: "#a855f7", bg: "rgba(168,85,247,0.1)", label: "Critical" },
 };
 
-const EMPTY_COLUMNS = {
-  todo: { id: "todo", title: "To Do", color: "#f59e0b", tasks: [] },
-  "in-progress": { id: "in-progress", title: "In Progress", color: "#6c63ff", tasks: [] },
-  review: { id: "review", title: "Review", color: "#00d4aa", tasks: [] },
-  completed: { id: "completed", title: "Done", color: "#22c55e", tasks: [] },
+// ✅ Correct status keys matching backend enum
+const COLUMNS = {
+  todo:        { id: "todo",        title: "To Do",       color: "#f59e0b", tasks: [] },
+  in_progress: { id: "in_progress", title: "In Progress", color: "#6c63ff", tasks: [] },
+  review:      { id: "review",      title: "Review",      color: "#00d4aa", tasks: [] },
+  done:        { id: "done",        title: "Done",        color: "#22c55e", tasks: [] },
 };
-const COL_ORDER = ["todo", "in-progress", "review", "completed"];
+const COL_ORDER = ["todo", "in_progress", "review", "done"];
 
 const SprintBoard = () => {
   const { isDark } = useTheme();
   const { user } = useAuth();
-  const [columns, setColumns] = useState(EMPTY_COLUMNS);
+  const [columns, setColumns] = useState(() => {
+    const cols = {};
+    COL_ORDER.forEach(id => cols[id] = { ...COLUMNS[id], tasks: [] });
+    return cols;
+  });
   const [addingTo, setAddingTo] = useState(null);
-  const [newTask, setNewTask] = useState({ title: "", priority: "medium", assignee: "" });
+  const [newTask, setNewTask] = useState({ title: "", priority: "medium" });
   const [loading, setLoading] = useState(true);
+  const [projects, setProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState("");
 
-  const cardBg = isDark ? "#12121f" : "#ffffff";
-  const border = isDark ? "#1e1e30" : "#e2e8f0";
-  const text = isDark ? "#e8e8f0" : "#1a1a2e";
-  const muted = isDark ? "#6b6b8a" : "#64748b";
-  const colBg = isDark ? "#0d0d18" : "#f8fafc";
+  const cardBg  = isDark ? "#12121f" : "#ffffff";
+  const border  = isDark ? "#1e1e30" : "#e2e8f0";
+  const text    = isDark ? "#e8e8f0" : "#1a1a2e";
+  const muted   = isDark ? "#6b6b8a" : "#64748b";
+  const colBg   = isDark ? "#0d0d18" : "#f8fafc";
   const inputBg = isDark ? "#12121f" : "#ffffff";
 
+  const loadTasks = (allTasks, projectIds) => {
+    const cols = {};
+    COL_ORDER.forEach(id => cols[id] = { ...COLUMNS[id], tasks: [] });
+    allTasks
+      .filter(t => projectIds.has(t.project?._id || t.project))
+      .forEach(t => {
+        const colId = COL_ORDER.includes(t.status) ? t.status : "todo";
+        const assignees = t.assignees || [];
+        cols[colId].tasks.push({
+          id:       t._id,
+          title:    t.title,
+          priority: t.priority || "medium",
+          assignee: assignees[0]?.name || "Unassigned",
+          project:  t.project?._id || t.project,
+        });
+      });
+    setColumns(cols);
+  };
+
   useEffect(() => {
-    const fetchTasks = async () => {
+    const fetchData = async () => {
       try {
         const [projectsRes, tasksRes] = await Promise.all([
           api.get("/projects"),
           api.get("/tasks"),
         ]);
         const allProjects = projectsRes.projects || projectsRes || [];
-        const allTasks = tasksRes.tasks || tasksRes || [];
-
-        // Get manager's project tasks
+        const allTasks    = tasksRes.tasks || tasksRes || [];
         const managed = allProjects.filter(p => p.manager?._id === user?._id || p.manager === user?._id);
+        setProjects(managed);
         const projectIds = new Set(managed.map(p => p._id));
-        const myTasks = allTasks.filter(t => projectIds.has(t.project?._id || t.project));
-
-        // Distribute into columns
-        const cols = {
-          todo: { ...EMPTY_COLUMNS.todo, tasks: [] },
-          "in-progress": { ...EMPTY_COLUMNS["in-progress"], tasks: [] },
-          review: { ...EMPTY_COLUMNS.review, tasks: [] },
-          completed: { ...EMPTY_COLUMNS.completed, tasks: [] },
-        };
-
-        myTasks.forEach(t => {
-          const status = t.status === "in_progress" ? "in-progress" : t.status;
-          const col = cols[status] || cols.todo;
-          const assignees = t.assignees || (t.assignee ? [t.assignee] : []);
-          col.tasks.push({
-            id: t._id,
-            title: t.title,
-            priority: t.priority || "medium",
-            assignee: assignees[0]?.name || assignees[0] || "Unassigned",
-            avatar: assignees[0]?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${assignees[0]?.name || "default"}`,
-          });
-        });
-        setColumns(cols);
+        loadTasks(allTasks, projectIds);
       } catch (err) {
         console.error("Sprint board error", err);
+        toast.error("Failed to load sprint board");
       } finally {
         setLoading(false);
       }
     };
-    if (user?._id) fetchTasks();
+    if (user?._id) fetchData();
   }, [user]);
 
   const onDragEnd = async (result) => {
@@ -88,7 +92,7 @@ const SprintBoard = () => {
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
-    const srcCol = { ...columns[source.droppableId], tasks: [...columns[source.droppableId].tasks] };
+    const srcCol  = { ...columns[source.droppableId],      tasks: [...columns[source.droppableId].tasks] };
     const destCol = { ...columns[destination.droppableId], tasks: [...columns[destination.droppableId].tasks] };
     const [moved] = srcCol.tasks.splice(source.index, 1);
 
@@ -98,10 +102,10 @@ const SprintBoard = () => {
     } else {
       destCol.tasks.splice(destination.index, 0, moved);
       setColumns({ ...columns, [source.droppableId]: srcCol, [destination.droppableId]: destCol });
-      // Update status in API
       try {
+        // ✅ destination.droppableId is already correct enum value (todo/in_progress/review/done)
         await api.patch(`/tasks/${draggableId}/status`, { status: destination.droppableId });
-        toast.success(`Moved to ${columns[destination.droppableId].title}!`);
+        toast.success(`Moved to ${COLUMNS[destination.droppableId].title}!`);
       } catch {
         toast.error("Failed to update task status");
       }
@@ -110,43 +114,60 @@ const SprintBoard = () => {
 
   const addTask = async (colId) => {
     if (!newTask.title.trim()) { toast.error("Task title required"); return; }
+    if (!selectedProject) { toast.error("Please select a project first"); return; }
     try {
       const res = await api.post("/tasks", {
-        title: newTask.title,
+        title:    newTask.title,
         priority: newTask.priority,
-        status: colId,
+        status:   colId,   // ✅ correct enum value
+        project:  selectedProject,
       });
       const created = res.task || res;
       const task = {
-        id: created._id,
-        title: created.title,
+        id:       created._id,
+        title:    created.title,
         priority: created.priority || "medium",
-        assignee: newTask.assignee || "Unassigned",
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${newTask.assignee || "default"}`,
+        assignee: "Unassigned",
       };
-      setColumns({ ...columns, [colId]: { ...columns[colId], tasks: [...columns[colId].tasks, task] } });
-      setNewTask({ title: "", priority: "medium", assignee: "" });
+      setColumns(prev => ({ ...prev, [colId]: { ...prev[colId], tasks: [...prev[colId].tasks, task] } }));
+      setNewTask({ title: "", priority: "medium" });
       setAddingTo(null);
       toast.success("Task added!");
-    } catch {
-      toast.error("Failed to create task");
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to create task");
     }
   };
 
   const deleteTask = async (colId, taskId) => {
     try {
       await api.delete(`/tasks/${taskId}`);
-      setColumns({ ...columns, [colId]: { ...columns[colId], tasks: columns[colId].tasks.filter(t => t.id !== taskId) } });
+      setColumns(prev => ({ ...prev, [colId]: { ...prev[colId], tasks: prev[colId].tasks.filter(t => t.id !== taskId) } }));
       toast.success("Task deleted!");
     } catch {
       toast.error("Failed to delete task");
     }
   };
 
-  if (loading) return <PageWrapper title="Sprint Board"><div className="text-center py-12"><p className="text-lg font-semibold" style={{ color: isDark ? "#6b6b8a" : "#64748b", fontFamily: "Syne, sans-serif" }}>Loading sprint board...</p></div></PageWrapper>;
+  if (loading) return (
+    <PageWrapper title="Sprint Board">
+      <div className="text-center py-12">
+        <p className="text-lg font-semibold" style={{ color: muted, fontFamily: "Syne, sans-serif" }}>Loading sprint board...</p>
+      </div>
+    </PageWrapper>
+  );
 
   return (
     <PageWrapper title="Sprint Board">
+      {/* Project selector */}
+      <div className="mb-4">
+        <select value={selectedProject} onChange={e => setSelectedProject(e.target.value)}
+          className="px-4 py-2.5 rounded-xl outline-none text-sm"
+          style={{ backgroundColor: cardBg, border: `1px solid ${border}`, color: text, fontFamily: "DM Sans, sans-serif", minWidth: 220 }}>
+          <option value="">Select project to add tasks...</option>
+          {projects.map(p => <option key={p._id} value={p._id}>{p.name}</option>)}
+        </select>
+      </div>
+
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {COL_ORDER.map(colId => {
@@ -173,23 +194,21 @@ const SprintBoard = () => {
                 {addingTo === colId && (
                   <div className="mx-3 mb-2 p-3 rounded-xl" style={{ backgroundColor: cardBg, border: `1px solid ${col.color}40`, animation: "slideUp 0.2s ease" }}>
                     <input value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })}
-                      placeholder="Task title..." className="w-full px-3 py-2 rounded-lg outline-none text-xs mb-2"
+                      placeholder="Task title..."
+                      className="w-full px-3 py-2 rounded-lg outline-none text-xs mb-2"
                       style={{ backgroundColor: inputBg, border: `1px solid ${border}`, color: text, fontFamily: "DM Sans, sans-serif" }}
                       onKeyDown={e => e.key === "Enter" && addTask(colId)} />
-                    <div className="flex gap-2 mb-2">
-                      <select value={newTask.priority} onChange={e => setNewTask({ ...newTask, priority: e.target.value })}
-                        className="flex-1 px-2 py-1.5 rounded-lg outline-none text-xs"
-                        style={{ backgroundColor: inputBg, border: `1px solid ${border}`, color: text, fontFamily: "DM Sans, sans-serif" }}>
-                        {["high", "medium", "low"].map(p => <option key={p}>{p}</option>)}
-                      </select>
-                      <input value={newTask.assignee} onChange={e => setNewTask({ ...newTask, assignee: e.target.value })}
-                        placeholder="Assignee" className="flex-1 px-2 py-1.5 rounded-lg outline-none text-xs"
-                        style={{ backgroundColor: inputBg, border: `1px solid ${border}`, color: text, fontFamily: "DM Sans, sans-serif" }} />
-                    </div>
+                    <select value={newTask.priority} onChange={e => setNewTask({ ...newTask, priority: e.target.value })}
+                      className="w-full px-2 py-1.5 rounded-lg outline-none text-xs mb-2"
+                      style={{ backgroundColor: inputBg, border: `1px solid ${border}`, color: text, fontFamily: "DM Sans, sans-serif" }}>
+                      {["low", "medium", "high", "critical"].map(p => <option key={p}>{p}</option>)}
+                    </select>
                     <div className="flex gap-2">
-                      <button onClick={() => addTask(colId)} className="flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105"
+                      <button onClick={() => addTask(colId)}
+                        className="flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105"
                         style={{ backgroundColor: col.color, color: "white", fontFamily: "DM Sans, sans-serif" }}>Add</button>
-                      <button onClick={() => setAddingTo(null)} className="px-3 py-1.5 rounded-lg text-xs transition-all hover:scale-105"
+                      <button onClick={() => setAddingTo(null)}
+                        className="px-3 py-1.5 rounded-lg text-xs transition-all hover:scale-105"
                         style={{ backgroundColor: isDark ? "#1e1e30" : "#f1f5f9", color: muted }}>Cancel</button>
                     </div>
                   </div>
@@ -212,7 +231,6 @@ const SprintBoard = () => {
                                   border: `1px solid ${snapshot.isDragging ? col.color : border}`,
                                   boxShadow: snapshot.isDragging ? "0 8px 24px rgba(0,0,0,0.3)" : isDark ? "0 2px 8px rgba(0,0,0,0.2)" : "0 2px 8px rgba(0,0,0,0.06)",
                                   transform: snapshot.isDragging ? "rotate(2deg)" : "none",
-                                  transition: "box-shadow 0.2s, border-color 0.2s",
                                   ...provided.draggableProps.style,
                                 }}>
                                 <div className="flex items-start gap-2">
@@ -223,15 +241,12 @@ const SprintBoard = () => {
                                     <p className="text-xs font-semibold mb-2 leading-tight" style={{ color: text, fontFamily: "DM Sans, sans-serif" }}>{task.title}</p>
                                     <div className="flex items-center justify-between">
                                       <span className="text-xs px-2 py-0.5 rounded-lg font-medium" style={{ backgroundColor: pc.bg, color: pc.color, fontFamily: "DM Sans, sans-serif" }}>{pc.label}</span>
-                                      <div className="flex items-center gap-1">
-                                        <img src={task.avatar} alt={task.assignee} className="w-5 h-5 rounded-full" />
-                                        <span className="text-xs" style={{ color: muted, fontFamily: "DM Sans, sans-serif" }}>{task.assignee}</span>
-                                      </div>
+                                      <span className="text-xs" style={{ color: muted, fontFamily: "DM Sans, sans-serif" }}>{task.assignee}</span>
                                     </div>
                                   </div>
                                   <button onClick={() => deleteTask(colId, task.id)}
                                     className="opacity-0 group-hover:opacity-100 transition-all hover:scale-110 shrink-0"
-                                    style={{ color: "#ef4444" }}>
+                                    style={{ color: "#ef4444", background: "none", border: "none", cursor: "pointer" }}>
                                     <FiX size={14} />
                                   </button>
                                 </div>
