@@ -8,28 +8,29 @@ import {
   LineChart, Line, PieChart, Pie, Cell,
 } from "recharts";
 import { MdPeople, MdFolder, MdTask, MdTrendingUp } from "react-icons/md";
-import { FiActivity } from "react-icons/fi";
+import { FiActivity, FiAlertCircle, FiAlertTriangle, FiClock } from "react-icons/fi";
 import api from "../../services/api";
 
 const pieColors = ["#22c55e", "#6c63ff", "#f59e0b", "#ef4444"];
 
 const AdminDashboard = () => {
   const { isDark } = useTheme();
-  const { user } = useAuth();
+  const { user }   = useAuth();
 
-  const [stats, setStats] = useState({ users: 0, projects: 0, tasks: 0, completionRate: 0 });
+  const [stats, setStats]             = useState({ users: 0, projects: 0, tasks: 0, completionRate: 0 });
   const [taskChartData, setTaskChartData] = useState([]);
-  const [pieData, setPieData] = useState([]);
-  const [weeklyData, setWeeklyData] = useState([]);
+  const [pieData, setPieData]         = useState([]);
+  const [weeklyData, setWeeklyData]   = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [topProjects, setTopProjects] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [deadlineStats, setDeadlineStats] = useState({ overdue: 0, dueToday: 0, dueSoon: 0, overdueTasks: [] });
+  const [loading, setLoading]         = useState(true);
 
-  const cardBg = isDark ? "#12121f" : "#ffffff";
-  const border = isDark ? "#1e1e30" : "#e2e8f0";
-  const text = isDark ? "#e8e8f0" : "#1a1a2e";
-  const muted = isDark ? "#6b6b8a" : "#64748b";
-  const gridBg = isDark ? "#1e1e30" : "#f1f5f9";
+  const cardBg  = isDark ? "#12121f" : "#ffffff";
+  const border  = isDark ? "#1e1e30" : "#e2e8f0";
+  const text    = isDark ? "#e8e8f0" : "#1a1a2e";
+  const muted   = isDark ? "#6b6b8a" : "#64748b";
+  const gridBg  = isDark ? "#1e1e30" : "#f1f5f9";
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -42,83 +43,81 @@ const AdminDashboard = () => {
           api.get("/notifications"),
         ]);
 
-        const users = usersRes.users || usersRes || [];
-        const projects = projectsRes.projects || projectsRes || [];
-        const tasks = tasksRes.tasks || tasksRes || [];
-        const notifications = notifRes.notifications || notifRes || [];
+        const users         = usersRes.users         || usersRes         || [];
+        const projects      = projectsRes.projects   || projectsRes      || [];
+        const tasks         = tasksRes.tasks         || tasksRes         || [];
+        const notifications = notifRes.notifications || notifRes         || [];
 
-        // Stats
-        const completed = tasks.filter(t => t.status === "completed").length;
-        const rate = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+        // ── Stats ────────────────────────────────────────────────────────────
+        const done = tasks.filter(t => t.status === "done").length;
+        const rate = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
         setStats({ users: users.length, projects: projects.length, tasks: tasks.length, completionRate: rate });
 
-        // Pie Data
-        const inProgress = tasks.filter(t => t.status === "in-progress").length;
-        const pending = tasks.filter(t => t.status === "todo").length;
-        const overdue = tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "completed").length;
+        // ── Deadline Stats ───────────────────────────────────────────────────
+        const now      = new Date();
+        const today    = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+        const in48h    = new Date(now.getTime() + 48 * 3600 * 1000);
+        const pending  = tasks.filter(t => t.status !== "done");
+
+        const overdueTasks = pending.filter(t => t.dueDate && new Date(t.dueDate) < today);
+        const dueTodayCount = pending.filter(t => { if (!t.dueDate) return false; const d = new Date(t.dueDate); return d >= today && d < tomorrow; }).length;
+        const dueSoonCount  = pending.filter(t => { if (!t.dueDate) return false; const d = new Date(t.dueDate); return d >= tomorrow && d <= in48h; }).length;
+
+        setDeadlineStats({ overdue: overdueTasks.length, dueToday: dueTodayCount, dueSoon: dueSoonCount, overdueTasks: overdueTasks.slice(0, 5) });
+
+        // ── Pie Data ─────────────────────────────────────────────────────────
+        const inProgress = tasks.filter(t => t.status === "in_progress").length;
+        const pending2   = tasks.filter(t => t.status === "todo").length;
         setPieData([
-          { name: "Completed", value: completed, color: "#22c55e" },
-          { name: "In Progress", value: inProgress, color: "#6c63ff" },
-          { name: "Pending", value: pending, color: "#f59e0b" },
-          { name: "Overdue", value: overdue, color: "#ef4444" },
+          { name: "Done",        value: done,        color: "#22c55e" },
+          { name: "In Progress", value: inProgress,  color: "#6c63ff" },
+          { name: "Pending",     value: pending2,    color: "#f59e0b" },
+          { name: "Overdue",     value: overdueTasks.length, color: "#ef4444" },
         ]);
 
-        // Top Projects
-        const projectsWithProgress = projects.slice(0, 4).map(p => ({
-          name: p.name,
-          color: ["#6c63ff", "#00d4aa", "#ff6b35", "#22c55e"][projects.indexOf(p) % 4],
-          tasks: p.tasks?.length || 0,
-          progress: p.tasks?.length > 0
-            ? Math.round((p.tasks.filter(t => t.status === "completed").length / p.tasks.length) * 100)
-            : 0,
-        }));
-        setTopProjects(projectsWithProgress);
+        // ── Top Projects ─────────────────────────────────────────────────────
+        setTopProjects(projects.slice(0, 4).map((p, idx) => ({
+          name:     p.name,
+          color:    ["#6c63ff","#00d4aa","#ff6b35","#22c55e"][idx % 4],
+          tasks:    p.tasks?.length || 0,
+          progress: p.progress || 0,
+          isOverdue: p.dueDate && new Date(p.dueDate) < now,
+        })));
 
-        // Recent notifications as activity
         setRecentActivity(notifications.slice(0, 5));
 
-        // Monthly task chart - group tasks by month created
+        // ── Monthly chart ────────────────────────────────────────────────────
         const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-        const now = new Date();
-        const last7Months = Array.from({ length: 7 }, (_, i) => {
+        const last7  = Array.from({ length: 7 }, (_, i) => {
           const d = new Date(now.getFullYear(), now.getMonth() - 6 + i, 1);
           return { month: months[d.getMonth()], monthIndex: d.getMonth(), year: d.getFullYear() };
         });
-        const chartData = last7Months.map(({ month, monthIndex, year }) => {
-          const monthTasks = tasks.filter(t => {
-            const d = new Date(t.createdAt);
-            return d.getMonth() === monthIndex && d.getFullYear() === year;
-          });
+        setTaskChartData(last7.map(({ month, monthIndex, year }) => {
+          const mt = tasks.filter(t => { const d = new Date(t.createdAt); return d.getMonth() === monthIndex && d.getFullYear() === year; });
           return {
             month,
-            completed: monthTasks.filter(t => t.status === "completed").length,
-            inProgress: monthTasks.filter(t => t.status === "in-progress").length,
-            pending: monthTasks.filter(t => t.status === "todo").length,
+            done:       mt.filter(t => t.status === "done").length,
+            inProgress: mt.filter(t => t.status === "in_progress").length,
+            pending:    mt.filter(t => t.status === "todo").length,
           };
-        });
-        setTaskChartData(chartData);
+        }));
 
-        // Weekly active - just show user count per day (approximate)
         const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
         setWeeklyData(days.map(day => ({ day, users: Math.floor(Math.random() * users.length) + 1 })));
 
-      } catch (err) {
-        console.error("Dashboard fetch error", err);
-      } finally {
-        setLoading(false);
-      }
+      } catch (err) { console.error("Dashboard fetch error", err); }
+      finally { setLoading(false); }
     };
     fetchDashboardData();
   }, []);
 
   const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
+    if (active && payload?.length) {
       return (
         <div className="rounded-xl p-3" style={{ backgroundColor: cardBg, border: `1px solid ${border}`, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
           <p className="text-sm font-semibold mb-1" style={{ color: text, fontFamily: "Syne, sans-serif" }}>{label}</p>
-          {payload.map((p, i) => (
-            <p key={i} className="text-xs" style={{ color: p.color, fontFamily: "DM Sans, sans-serif" }}>{p.name}: {p.value}</p>
-          ))}
+          {payload.map((p, i) => <p key={i} className="text-xs" style={{ color: p.color, fontFamily: "DM Sans, sans-serif" }}>{p.name}: {p.value}</p>)}
         </div>
       );
     }
@@ -128,12 +127,17 @@ const AdminDashboard = () => {
   return (
     <PageWrapper title="Admin Dashboard">
       {/* Welcome Banner */}
-      <div className="rounded-2xl p-6 mb-6 relative overflow-hidden" style={{ background: "linear-gradient(135deg, #ff6b35, #ff8c5a)", boxShadow: "0 8px 32px rgba(255,107,53,0.3)" }}>
+      <div className="rounded-2xl p-6 mb-6 relative overflow-hidden"
+        style={{ background: deadlineStats.overdue > 0 ? "linear-gradient(135deg, #ef4444, #f87171)" : "linear-gradient(135deg, #ff6b35, #ff8c5a)", boxShadow: deadlineStats.overdue > 0 ? "0 8px 32px rgba(239,68,68,0.3)" : "0 8px 32px rgba(255,107,53,0.3)" }}>
         <div className="relative z-10">
           <h2 className="text-2xl font-black text-white mb-1" style={{ fontFamily: "Syne, sans-serif" }}>
-            Good {new Date().getHours() < 12 ? "Morning" : new Date().getHours() < 18 ? "Afternoon" : "Evening"}, {user?.name?.split(" ")[0]}! 👋
+            {deadlineStats.overdue > 0 ? `⚠️ Attention, ${user?.name?.split(" ")[0]}!` : `Good ${new Date().getHours() < 12 ? "Morning" : new Date().getHours() < 18 ? "Afternoon" : "Evening"}, ${user?.name?.split(" ")[0]}! 👋`}
           </h2>
-          <p className="text-orange-100 text-sm" style={{ fontFamily: "DM Sans, sans-serif" }}>Here's what's happening across your workspace today.</p>
+          <p className="text-sm" style={{ color: "rgba(255,255,255,0.9)", fontFamily: "DM Sans, sans-serif" }}>
+            {deadlineStats.overdue > 0
+              ? `${deadlineStats.overdue} overdue task${deadlineStats.overdue > 1 ? "s" : ""} across your projects need attention!`
+              : "Here's what's happening across your workspace today."}
+          </p>
         </div>
         <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full opacity-20" style={{ backgroundColor: "white" }} />
         <div className="absolute -right-4 -bottom-8 w-24 h-24 rounded-full opacity-10" style={{ backgroundColor: "white" }} />
@@ -141,11 +145,58 @@ const AdminDashboard = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatsCard title="Total Users" value={stats.users} icon={MdPeople} color="#ff6b35" gradient="linear-gradient(135deg, #ff6b35, #ff8c5a)" change={0} />
-        <StatsCard title="Active Projects" value={stats.projects} icon={MdFolder} color="#6c63ff" gradient="linear-gradient(135deg, #6c63ff, #8b85ff)" change={0} />
-        <StatsCard title="Total Tasks" value={stats.tasks} icon={MdTask} color="#00d4aa" gradient="linear-gradient(135deg, #00d4aa, #00f5c8)" change={0} />
+        <StatsCard title="Total Users"     value={stats.users}          icon={MdPeople}    color="#ff6b35" gradient="linear-gradient(135deg, #ff6b35, #ff8c5a)" change={0} />
+        <StatsCard title="Active Projects" value={stats.projects}       icon={MdFolder}    color="#6c63ff" gradient="linear-gradient(135deg, #6c63ff, #8b85ff)" change={0} />
+        <StatsCard title="Total Tasks"     value={stats.tasks}          icon={MdTask}      color="#00d4aa" gradient="linear-gradient(135deg, #00d4aa, #00f5c8)" change={0} />
         <StatsCard title="Completion Rate" value={stats.completionRate} icon={MdTrendingUp} color="#a78bfa" gradient="linear-gradient(135deg, #a78bfa, #c4b5fd)" change={0} suffix="%" />
       </div>
+
+      {/* Deadline Summary Row */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        {[
+          { label: "Overdue Tasks",    count: deadlineStats.overdue,   color: "#ef4444", bg: "rgba(239,68,68,0.08)",   border2: "rgba(239,68,68,0.25)",   icon: FiAlertCircle,   emoji: "🚨" },
+          { label: "Due Today",        count: deadlineStats.dueToday,  color: "#f59e0b", bg: "rgba(245,158,11,0.08)",  border2: "rgba(245,158,11,0.25)",  icon: FiAlertTriangle, emoji: "⏰" },
+          { label: "Due in 48 Hours",  count: deadlineStats.dueSoon,   color: "#3b82f6", bg: "rgba(59,130,246,0.06)",  border2: "rgba(59,130,246,0.2)",   icon: FiClock,         emoji: "📅" },
+        ].map(item => (
+          <div key={item.label} className="rounded-2xl p-5 text-center"
+            style={{ backgroundColor: item.count > 0 ? item.bg : cardBg, border: `1px solid ${item.count > 0 ? item.border2 : border}`, boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.3)" : "0 4px 24px rgba(0,0,0,0.06)" }}>
+            <p style={{ margin: 0, fontSize: 28, fontWeight: 900, color: item.count > 0 ? item.color : muted, fontFamily: "Syne, sans-serif" }}>
+              {item.count > 0 ? item.emoji : "✅"} {item.count}
+            </p>
+            <p style={{ margin: "4px 0 0", fontSize: 12, color: item.count > 0 ? item.color : muted, fontFamily: "DM Sans, sans-serif", fontWeight: 600 }}>
+              {item.label}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* Overdue Tasks Detail */}
+      {deadlineStats.overdueTasks.length > 0 && (
+        <div className="rounded-2xl p-5 mb-6" style={{ backgroundColor: cardBg, border: "1px solid rgba(239,68,68,0.3)", boxShadow: isDark ? "0 4px 24px rgba(0,0,0,0.3)" : "0 4px 24px rgba(239,68,68,0.08)" }}>
+          <h3 className="text-base font-bold mb-4" style={{ fontFamily: "Syne, sans-serif", color: "#ef4444", display: "flex", alignItems: "center", gap: 8 }}>
+            <FiAlertCircle /> Overdue Tasks — Action Required
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {deadlineStats.overdueTasks.map(task => {
+              const daysOverdue = Math.floor((new Date() - new Date(task.dueDate)) / 86400000);
+              return (
+                <div key={task._id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 10, backgroundColor: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)" }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#ef4444", flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: text, fontFamily: "DM Sans, sans-serif" }}>{task.title}</p>
+                    <p style={{ margin: 0, fontSize: 11, color: muted, fontFamily: "DM Sans, sans-serif" }}>
+                      {task.project?.name || "No project"} • {task.assignees?.[0]?.name || "Unassigned"}
+                    </p>
+                  </div>
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, backgroundColor: "rgba(239,68,68,0.15)", color: "#ef4444", fontFamily: "DM Sans, sans-serif", fontWeight: 700, flexShrink: 0 }}>
+                    {daysOverdue}d overdue
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
@@ -157,9 +208,9 @@ const AdminDashboard = () => {
               <XAxis dataKey="month" tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: muted, fontSize: 12, fontFamily: "DM Sans" }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="completed" fill="#22c55e" radius={[4, 4, 0, 0]} name="Completed" />
-              <Bar dataKey="inProgress" fill="#6c63ff" radius={[4, 4, 0, 0]} name="In Progress" />
-              <Bar dataKey="pending" fill="#f59e0b" radius={[4, 4, 0, 0]} name="Pending" />
+              <Bar dataKey="done"       fill="#22c55e" radius={[4,4,0,0]} name="Done" />
+              <Bar dataKey="inProgress" fill="#6c63ff" radius={[4,4,0,0]} name="In Progress" />
+              <Bar dataKey="pending"    fill="#f59e0b" radius={[4,4,0,0]} name="Pending" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -175,7 +226,7 @@ const AdminDashboard = () => {
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-2 mt-2">
-            {pieData.map((item) => (
+            {pieData.map(item => (
               <div key={item.name} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
@@ -220,7 +271,10 @@ const AdminDashboard = () => {
             {topProjects.map((project, i) => (
               <div key={project.name} style={{ animation: `slideUp 0.3s ease ${i * 0.1}s both` }}>
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-medium truncate" style={{ color: text, fontFamily: "DM Sans, sans-serif", maxWidth: "70%" }}>{project.name}</p>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <p className="text-sm font-medium truncate" style={{ color: text, fontFamily: "DM Sans, sans-serif", maxWidth: "70%" }}>{project.name}</p>
+                    {project.isOverdue && <span style={{ fontSize: 10, color: "#ef4444" }}>⚠️</span>}
+                  </div>
                   <span className="text-xs font-bold" style={{ color: project.color, fontFamily: "DM Sans, sans-serif" }}>{project.progress}%</span>
                 </div>
                 <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: `${project.color}20` }}>
