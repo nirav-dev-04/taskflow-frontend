@@ -6,24 +6,38 @@ import {
   useCallback,
 } from "react";
 import { authService } from "../services/authService";
+import api from "../services/api";
 
 export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
+  const [user, setUser]                   = useState(null);
+  const [token, setToken]                 = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading]         = useState(true);
+  const [error, setError]                 = useState(null);
 
+  // ── On app load — restore session from localStorage ──────────────────────
   useEffect(() => {
     try {
       const storedToken = localStorage.getItem("taskflow_token");
-      const storedUser = localStorage.getItem("taskflow_user");
+      const storedUser  = localStorage.getItem("taskflow_user");
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
         setIsAuthenticated(true);
+
+        // ✅ After restoring from localStorage, fetch fresh profile from DB
+        // This ensures bio/name saved to backend are reflected even after re-login
+        api.get("/auth/me").then(res => {
+          const freshUser = res.user || res;
+          if (freshUser?._id) {
+            // Merge: DB data wins for profile fields, keep localStorage extras
+            const merged = { ...JSON.parse(storedUser), ...freshUser };
+            setUser(merged);
+            localStorage.setItem("taskflow_user", JSON.stringify(merged));
+          }
+        }).catch(() => { /* silent — use cached data */ });
       }
     } catch {
       localStorage.removeItem("taskflow_token");
@@ -33,17 +47,31 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // ── Login ─────────────────────────────────────────────────────────────────
   const login = useCallback(async (credentials) => {
     setIsLoading(true);
     setError(null);
     try {
       const res = await authService.login(credentials);
       const { token: newToken, user: newUser } = res;
+
       localStorage.setItem("taskflow_token", newToken);
       localStorage.setItem("taskflow_user", JSON.stringify(newUser));
       setToken(newToken);
       setUser(newUser);
       setIsAuthenticated(true);
+
+      // ✅ Fetch full profile immediately after login so bio/name from DB loads
+      try {
+        const profileRes = await api.get("/auth/me");
+        const freshUser  = profileRes.user || profileRes;
+        if (freshUser?._id) {
+          const merged = { ...newUser, ...freshUser };
+          setUser(merged);
+          localStorage.setItem("taskflow_user", JSON.stringify(merged));
+        }
+      } catch { /* use login response user */ }
+
       setIsLoading(false);
       return { success: true, user: newUser };
     } catch (err) {
@@ -54,6 +82,7 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // ── Register ──────────────────────────────────────────────────────────────
   const register = useCallback(async (data) => {
     setIsLoading(true);
     setError(null);
@@ -75,11 +104,10 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // ── Logout ────────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
-    try {
-      await authService.logout();
-    } catch {
-    } finally {
+    try { await authService.logout(); } catch {}
+    finally {
       localStorage.removeItem("taskflow_token");
       localStorage.removeItem("taskflow_user");
       setUser(null);
@@ -89,41 +117,41 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // ── Update user (profile save) ────────────────────────────────────────────
+  // ✅ Merges new data into existing user, saves to BOTH state and localStorage
   const updateUser = useCallback((data) => {
-    setUser((prev) => {
+    setUser(prev => {
       const updated = { ...prev, ...data };
       localStorage.setItem("taskflow_user", JSON.stringify(updated));
       return updated;
     });
   }, []);
 
-  const clearError = useCallback(() => setError(null), []);
-  const hasRole = (role) => user?.role === role;
-  const hasAnyRole = (roles = []) => roles.includes(user?.role);
-  const isAdmin = () => user?.role === "admin";
-  const isManager = () => user?.role === "manager";
-  const isEmployee = () => user?.role === "employee";
+  const clearError  = useCallback(() => setError(null), []);
+  const hasRole     = (role)    => user?.role === role;
+  const hasAnyRole  = (roles = []) => roles.includes(user?.role);
+  const isAdmin     = () => user?.role === "admin";
+  const isManager   = () => user?.role === "manager";
+  const isEmployee  = () => user?.role === "employee";
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        token,
-        isAuthenticated,
-        isLoading,
-        error,
-        login,
-        register,
-        logout,
-        updateUser,
-        clearError,
-        hasRole,
-        hasAnyRole,
-        isAdmin,
-        isManager,
-        isEmployee,
-      }}
-    >
+    <AuthContext.Provider value={{
+      user,
+      token,
+      isAuthenticated,
+      isLoading,
+      error,
+      login,
+      register,
+      logout,
+      updateUser,
+      clearError,
+      hasRole,
+      hasAnyRole,
+      isAdmin,
+      isManager,
+      isEmployee,
+    }}>
       {children}
     </AuthContext.Provider>
   );
